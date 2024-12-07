@@ -1,109 +1,63 @@
-# 🎥 Video Search and Upload Bot Assignment
+# 🎥 Instagram Video Downloader and Uploader
 
-A Python-based bot that searches, downloads, and uploads videos from social media platforms.
+## 📝 Project Overview
+This project is a robust, end-to-end solution for downloading Instagram videos by hashtag and uploading them to a social media platform. Perfect for content aggregation and social media management.
 
-## 🎯 Objective
-Create a bot to download videos from Instagram and TikTok, then upload them to our server using provided APIs.
-
-## 📋 Requirements
-
-### Core Features
-- Search and download videos from specified platforms
-- Upload videos via API endpoints
-- Auto-delete local files after upload
-- Monitor /videos directory for new .mp4 files
-- Async operations for concurrent uploads
-
-### API Integration
-
-1. Get Upload URL (METHOD: GET):
-2. For Flic-Token access, message on [Telegram](https://t.me/+vKzmXhW1Epw0Mzll) with your Empowerverse username.
-```
-Endpoint: https://api.socialverseapp.com/posts/generate-upload-url
-Headers: {
-    "Flic-Token": "<YOUR_TOKEN>",
-    "Content-Type": "application/json"
-}
-```
-
-2. Upload Video (METHOD: PUT):
-- Use pre-signed URL with PUT request
-
-3. Create Post (METHOD: POST):
-```
-Endpoint: https://api.socialverseapp.com/posts
-Headers: {
-    "Flic-Token": "<YOUR_TOKEN>",
-    "Content-Type": "application/json"
-}
-Body: {
-    "title": "<video title>",
-    "hash": "<hash from Step 1>",
-    "is_available_in_public_feed": false,
-    "category_id": <category_id>
-}
-```
-
-### Technical Requirements
-- Python
-- asyncio for concurrent operations
-- tqdm for progress bars
+## 🚀 Features
+- Interactive CLI for video download
+- Hashtag-based video search
+- Configurable download limits
+- Progress tracking
+- Comprehensive logging
+- Retry mechanisms for uploads
 - Error handling
-- Directory monitoring
 
-## 📁 Basic Project Structure
+## 🔧 Prerequisites
+- Python 3.8+
+- RapidAPI Account
+- Flic Authentication Token
+- Internet Connection
+
+## 📦 Installation
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/yourusername/instagram-video-workflow.git
+cd instagram-video-workflow
 ```
-video-bot/
-├── main.py                # Main script
-├── requirements.txt       # Dependencies
-└── README.md             # Documentation
+
+### 2. Create Virtual Environment
+```bash
+python3 -m venv venv
+source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
 ```
 
-## 📝 Submission Guidelines
+### 3. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+### 4. Set up .env file
+```bash
+# In your .env.example file
 
-### Code Repository
-- Complete GitHub repository
-- Clear documentation
-- Proper code structure
-- Detailed README.md
+FLIC_TOKEN = your_flic_token
+RAPID_API_KEY = your_rapid_api_key
+RAPID_API_HOST = your_rapid_api_host
+```
+After Setting this up. 
+Rename the .env.example to .env
 
-### Video Presentation (5 min max)
-- Project setup instructions
-- Code walkthrough
-- Self-introduction
-- Submit via Internshalla/Google Drive
+## 💻 Usage
+```bash
+python main.py
+```
+Follow the interactive prompts:
+- Enter hashtags (comma-separated)
+- Specify videos per tag
 
-## 📊 Evaluation Criteria
+## 📊 Workflow
+1. Search Instagram videos by hashtag
+2. Download specified number of videos
+3. Upload videos to platform
+4. Generate detailed logs
 
-### Code Quality (30%)
-- Organization and structure
-- Readability
-- Performance optimization
-- Best practices implementation
-
-### Functionality (40%)
-- Video search implementation
-- Upload mechanism
-- Error handling
-- Feature completeness
-
-### Documentation (15%)
-- Setup instructions
-- Usage guidelines
-- Code comments
-- README quality
-
-### Presentation (15%)
-- Clear explanation
-- Technical understanding
-- Time management
-
-## ✅ Verification
-1. Download Empowerverse App ([Android](https://play.google.com/store/apps/details?id=com.empowerverse.app) | [iOS](https://apps.apple.com/us/app/empowerverse/id6449552284))
-2. Navigate to "Super Feed" category
-3. Hold category and click Browse
-4. Check uploaded videos
-
-For Flic-Token access, message on [Telegram](https://t.me/+vKzmXhW1Epw0Mzll) with your Empowerverse username.
-
-Results will be announced within 24 hours of submission.
