@@ -32,8 +32,8 @@ class InstagramVideoDownloader:
         os.makedirs(self.videos_directory, exist_ok=True)
         
         # RapidAPI configuration
-        self.rapid_api_key = 'd282a3f50emsh76fbabcb27e4f7dp18f729jsn5326d27f25f6'
-        self.rapid_api_host = 'instagram-scraper-api2.p.rapidapi.com'
+        self.rapid_api_key = os.getenv('RAPID_API_KEY')
+        self.rapid_api_host = os.getenv('RAPID_API_HOST')
         
         # Headers for RapidAPI request
         self.headers = {
@@ -54,6 +54,7 @@ class InstagramVideoDownloader:
         downloaded_videos = []
         
         for tag in self.tags:
+            tag_videos_count = 0
             try:
                 # Log start of hashtag processing
                 self.logger.info(f"Processing hashtag: {tag}")
@@ -76,6 +77,7 @@ class InstagramVideoDownloader:
                 data = response.json()
                 
                 items = data.get('data', {}).get('items', [])
+                self.logger.info(f"Found {len(items)} items for tag: {tag}")
                 for index, item in enumerate(items[:self.max_videos], 1):
                     # Extract video URL - the exact key might vary based on API response
                     video_url = item.get('video_url')
@@ -95,9 +97,10 @@ class InstagramVideoDownloader:
                             
                             downloaded_videos.append(filename)
                             self.logger.info(f"Successfully downloaded video: {filename}")
+                            tag_videos_count += 1
                     
                     # Break if max videos per tag is reached
-                    if len(downloaded_videos) >= self.max_videos:
+                    if tag_videos_count >= self.max_videos:
                         break
                 
             except Exception as e:
