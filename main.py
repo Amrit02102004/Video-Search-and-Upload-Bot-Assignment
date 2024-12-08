@@ -1,11 +1,15 @@
 import os
 import sys
-from typing import List
+import asyncio
 import logging
+from typing import List
+from dotenv import load_dotenv
 from instadownloader import download_instagram_videos
 from videouploader import SimpleVideoUploader
-from dotenv import load_dotenv
+
+# Load environment variables
 load_dotenv()
+
 def setup_logging():
     """
     Configure logging for the main application.
@@ -39,9 +43,9 @@ def validate_inputs(tags: List[str], videos_per_tag: int) -> bool:
     
     return True
 
-def main():
+async def async_main():
     """
-    Main workflow orchestrating video download and upload process.
+    Asynchronous main workflow orchestrating video download and upload process.
     Interactive CLI for user-friendly experience.
     """
     # Setup logging
@@ -85,26 +89,27 @@ def main():
         # Initialize Uploader
         uploader = SimpleVideoUploader(FLIC_TOKEN)
         
-        # Track upload statistics
-        successful_uploads = 0
-        failed_uploads = 0
-        
-        # Upload each downloaded video
+        # Upload each downloaded video asynchronously
+        upload_tasks = []
         for video in downloaded_videos:
             video_filename = os.path.basename(video)
             print(f"\nUploading: {video_filename}")
             
-            success = uploader.upload_single_video(
-                video_filename, 
-                category_id=CATEGORY_ID
+            # Create upload task
+            upload_task = asyncio.create_task(
+                uploader.upload_single_video(
+                    video_filename, 
+                    category_id=CATEGORY_ID
+                )
             )
-            
-            if success:
-                successful_uploads += 1
-                print(f"✅ {video_filename} uploaded successfully!")
-            else:
-                failed_uploads += 1
-                print(f"❌ Failed to upload {video_filename}")
+            upload_tasks.append(upload_task)
+        
+        # Wait for all uploads to complete
+        upload_results = await asyncio.gather(*upload_tasks)
+        
+        # Count successful and failed uploads
+        successful_uploads = upload_results.count(True)
+        failed_uploads = upload_results.count(False)
         
         # Final Summary
         print("\n📊 Upload Summary:")
@@ -122,6 +127,12 @@ def main():
         logger.error(f"Unexpected error in main workflow: {e}")
         print(f"❌ An unexpected error occurred: {e}")
         sys.exit(1)
+
+def main():
+    """
+    Synchronous wrapper for async main function
+    """
+    asyncio.run(async_main())
 
 if __name__ == "__main__":
     main()

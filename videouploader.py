@@ -1,178 +1,122 @@
 import os
-import requests
 import logging
-import certifi
-import ssl
+import json
+import asyncio
+import aiofiles
+import aiohttp
 from tqdm import tqdm
-import socket
-import urllib3
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 class SimpleVideoUploader:
-    def __init__(self, flic_token, videos_directory='videos'):
-        """
-        Initialize SimpleVideoUploader with robust logging and connection handling
-        
-        :param flic_token: Authentication token for the API
-        :param videos_directory: Directory containing video files
-        """
-        # Configure logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s'
-        )
-        self.logger = logging.getLogger(__name__)
-        
-        # Disable SSL warnings
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        
+    def __init__(self, flic_token, chunk_size=5 * 1024 * 1024):  # 5MB chunks
         self.flic_token = flic_token
-        self.videos_directory = videos_directory
-        
-        # Create videos directory if it doesn't exist
-        os.makedirs(videos_directory, exist_ok=True)
-        
-        # Configure requests session with robust settings
-        self.session = requests.Session()
-        self.session.verify = certifi.where()
-        
-        # Configure socket and SSL timeouts
-        socket.setdefaulttimeout(30)
-        ssl.create_default_https_context = ssl.create_default_context
+        self.chunk_size = chunk_size
+        self.base_url = 'https://api.socialverseapp.com'
 
-    def _upload_with_progress(self, file_path, upload_url):
-        """
-        Enhanced file upload with improved error handling and progress tracking
+    async def get_upload_url(self, file_size):
+        """Generate pre-signed upload URL"""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f'{self.base_url}/posts/generate-upload-url', 
+                headers={
+                    'Flic-Token': self.flic_token,
+                    'Content-Type': 'application/json'
+                },
+                json={'file_size': file_size}
+            ) as response:
+                data = await response.json()
+                logger.info(f"Upload URL Response: {json.dumps(data, indent=2)}")
+                
+                if data.get('status') != 'success':
+                    raise ValueError("Failed to get upload URL")
+                
+                return data.get('url'), data.get('hash')
+
+    async def chunked_upload(self, file_path, upload_url):
+        """Upload file in chunks with progress tracking"""
+        file_size = os.path.getsize(file_path)
         
-        :param file_path: Path to the file to upload
-        :param upload_url: Pre-signed S3 upload URL
-        :return: Success status
-        """
+        # Use tqdm for progress bar
+        with tqdm(total=file_size, unit='B', unit_scale=True, desc=os.path.basename(file_path)) as pbar:
+            async with aiofiles.open(file_path, 'rb') as f:
+                async with aiohttp.ClientSession() as session:
+                    async with session.put(upload_url, headers={'Content-Type': 'video/mp4'}) as response:
+                        while True:
+                            chunk = await f.read(self.chunk_size)
+                            if not chunk:
+                                break
+                            
+                            try:
+                                async with session.put(upload_url, data=chunk) as chunk_response:
+                                    if chunk_response.status not in [200, 204]:
+                                        logger.error(f"Chunk upload failed: {chunk_response.status}")
+                                        return False
+                                
+                                pbar.update(len(chunk))
+                            except Exception as e:
+                                logger.error(f"Chunk upload error: {e}")
+                                return False
+                        
+                        return True
+
+    async def create_post(self, file_path, file_hash, category_id=25):
+        """Create post after successful upload"""
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f'{self.base_url}/posts', 
+                headers={
+                    'Flic-Token': self.flic_token,
+                    'Content-Type': 'application/json'
+                },
+                json={
+                    'title': f'{os.path.splitext(os.path.basename(file_path))[0]}_upload',
+                    'hash': file_hash,
+                    'is_available_in_public_feed': False,
+                    'category_id': category_id
+                }
+            ) as response:
+                response_data = await response.json()
+                logger.info(f"Post Response: {json.dumps(response_data, indent=2)}")
+                
+                return response.status in [200, 201]
+
+    async def upload_single_video(self, file_path, category_id=25):
+        """Main upload method with comprehensive error handling"""
         try:
-            # Get file size for progress bar
+            # Ensure full path if only filename is provided
+            if not os.path.isabs(file_path):
+                file_path = os.path.join('videos', file_path)
+            
             file_size = os.path.getsize(file_path)
             
-            # Open file and create progress bar
-            with open(file_path, 'rb') as f, tqdm(
-                total=file_size, 
-                unit='B', 
-                unit_scale=True, 
-                desc=os.path.basename(file_path),
-                bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]'
-            ) as pbar:
-                # Custom iterator to update progress bar
-                def iter_file():
-                    # Increased chunk size to 30MB as requested
-                    chunk_size = 1024 * 1024 * 30 
-                    while True:
-                        chunk = f.read(chunk_size)
-                        if not chunk:
-                            break
-                        pbar.update(len(chunk))
-                        yield chunk
-                
-                # Configure additional request parameters
-                upload_params = {
-                    'data': iter_file(),
-                    'headers': {
-                        'Content-Length': str(file_size),
-                        'Content-Type': 'video/mp4'
-                    },
-                    'verify': certifi.where(),
-                    'stream': True,
-                    'timeout': (30, 60)  # Extended timeouts
-                }
-                
-                # Retry mechanism for upload
-                max_retries = 3
-                for attempt in range(max_retries):
-                    try:
-                        response = requests.put(upload_url, **upload_params)
-                        response.raise_for_status()
-                        return True
-                    except requests.exceptions.RequestException as e:
-                        self.logger.warning(f"Upload attempt {attempt + 1} failed: {e}")
-                        if attempt == max_retries - 1:
-                            raise
+            # Get upload URL
+            upload_url, file_hash = await self.get_upload_url(file_size)
             
-        except Exception as e:
-            self.logger.error(f"Comprehensive upload error: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-
-    def upload_single_video(self, file_name, category_id=25, max_retries=3):
-        """
-        Robust single video upload with comprehensive error handling
-        
-        :param file_name: Name of the video file to upload
-        :param category_id: Category ID for the post
-        :param max_retries: Number of retry attempts
-        :return: Success status
-        """
-        file_path = os.path.join(self.videos_directory, file_name)
-        
-        try:
-            # Validate file existence
-            if not os.path.exists(file_path):
-                self.logger.error(f"Video file not found: {file_path}")
+            # Chunked upload
+            upload_success = await self.chunked_upload(file_path, upload_url)
+            
+            if not upload_success:
+                logger.error("Video upload failed")
                 return False
             
-            # Retry mechanism for API calls
-            for attempt in range(max_retries):
-                try:
-                    # Step 1: Get Upload URL
-                    upload_url_response = self.session.get(
-                        'https://api.socialverseapp.com/posts/generate-upload-url',
-                        headers={
-                            'Flic-Token': self.flic_token,
-                            'Content-Type': 'application/json'
-                        },
-                        json={'file_size': os.path.getsize(file_path)},
-                        timeout=(30, 60)
-                    )
-                    
-                    # Validate upload URL response
-                    upload_url_data = upload_url_response.json()
-                    if upload_url_data.get('status') != 'success':
-                        self.logger.error(f"Upload URL request failed (Attempt {attempt + 1})")
-                        if attempt == max_retries - 1:
-                            return False
-                        continue
-                    
-                    upload_url = upload_url_data.get('url')
-                    file_hash = upload_url_data.get('hash')
-                    
-                    # Step 2: Upload Video
-                    if not self._upload_with_progress(file_path, upload_url):
-                        raise ValueError("Video upload failed")
-                    
-                    # Step 3: Create Post
-                    post_response = self.session.post(
-                        'https://api.socialverseapp.com/posts',
-                        headers={
-                            'Flic-Token': self.flic_token,
-                            'Content-Type': 'application/json'
-                        },
-                        json={
-                            'title': f'{os.path.splitext(file_name)[0]}_upload',
-                            'hash': file_hash,
-                            'is_available_in_public_feed': False,
-                            'category_id': category_id
-                        },
-                        timeout=(30, 60)
-                    )
-                    
-                    post_response.raise_for_status()
-                    self.logger.info(f"Successfully uploaded {file_name}")
-                    return True
-                
-                except Exception as attempt_error:
-                    self.logger.warning(f"Upload attempt {attempt + 1} failed: {attempt_error}")
-                    if attempt == max_retries - 1:
-                        return False
+            # Create post
+            post_success = await self.create_post(file_path, file_hash, category_id)
+            
+            if not post_success:
+                logger.error("Post creation failed")
+                return False
+            
+            logger.info(f"Successfully uploaded {file_path}")
+            return True
         
         except Exception as e:
-            self.logger.error(f"Critical error uploading {file_name}: {e}")
+            logger.error(f"Upload error: {e}")
             import traceback
             traceback.print_exc()
             return False
