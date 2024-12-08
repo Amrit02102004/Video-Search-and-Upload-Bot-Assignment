@@ -1,4 +1,7 @@
-requests==2.31.0
-certifi==2024.2.2
-tqdm==4.66.2
-urllib3==2.2.1
+python-dotenv
+requests
+aiohttp
+tqdm
+asyncio
+logging
+aiofiles
