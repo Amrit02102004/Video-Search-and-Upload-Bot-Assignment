@@ -1,5 +1,6 @@
 .env
 videos/
+images/
 __pycache__/
 *.log
 *.pyc

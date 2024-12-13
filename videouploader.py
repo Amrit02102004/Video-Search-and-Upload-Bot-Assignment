@@ -14,10 +14,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class SimpleVideoUploader:
-    def __init__(self, flic_token, chunk_size=5 * 1024 * 1024):  # 5MB chunks
+    def __init__(self, flic_token, category_id , chunk_size=5 * 1024 * 1024):  # 5MB chunks
         self.flic_token = flic_token
         self.chunk_size = chunk_size
         self.base_url = 'https://api.socialverseapp.com'
+        self.category_id = category_id
 
     async def get_upload_url(self, file_size):
         """Generate pre-signed upload URL"""
