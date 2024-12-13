@@ -4,14 +4,15 @@ import requests
 import logging
 import time
 import random
-from typing import Set, Dict
+from typing import Set, Dict, List, Tuple
 
 from dotenv import load_dotenv
 load_dotenv()
+
 class InstagramVideoDownloader:
     def __init__(self, tags, max_videos=3):
         """
-        Optimized Instagram Video Downloader with in-memory download history
+        Optimized Instagram Video Downloader with in-memory download history and pagination
         
         :param tags: List of hashtags to search
         :param max_videos: Maximum number of videos to download per tag
@@ -123,11 +124,12 @@ class InstagramVideoDownloader:
         except Exception as e:
             self.logger.error(f"Error recording download history: {e}")
     
-    def download_videos_from_hashtag(self):
+    def download_videos_from_hashtag(self, pagination_token=None):
         """
-        Download videos using RapidAPI hashtag endpoint with optimized history tracking
+        Download videos using RapidAPI hashtag endpoint with optimized history tracking and pagination
         
-        :return: List of downloaded video paths
+        :param pagination_token: Optional pagination token for the next set of videos
+        :return: List of downloaded video paths, pagination token for the next request
         """
         downloaded_videos = []
         
@@ -142,6 +144,8 @@ class InstagramVideoDownloader:
                 
                 # Query parameters
                 querystring = {"hashtag": tag}
+                if pagination_token:
+                    querystring['pagination_token'] = pagination_token
                 
                 # Log API request details
                 self.logger.info(f"Sending request to URL: {url}")
@@ -160,68 +164,83 @@ class InstagramVideoDownloader:
                 data = response.json()
                 
                 items = data.get('data', {}).get('items', [])
+                next_pagination_token = data.get('pagination_token')
                 
                 # Shuffle items to add randomness to selection
                 random.shuffle(items)
                 
                 for index, item in enumerate(items, 1):
-                    # Extract video details
-                    pk = item.get('pk')
-                    video_url = item.get('video_url')
-                    
-                    # Skip if video already downloaded
-                    if self._is_video_downloaded(pk):
-                        self.logger.info(f"Skipping already downloaded video with pk: {pk}")
-                        continue
-                    
-                    if video_url:
-                        try:
-                            # Add small random delay to avoid potential rate limiting
-                            time.sleep(random.uniform(0.5, 1.5))
-                            
-                            video_response = requests.get(
-                                video_url, 
-                                timeout=15  # Timeout for video download
-                            )
-                            
-                            if video_response.status_code == 200:
-                                # Generate unique filename
-                                filename = os.path.join(
-                                    self.videos_directory, 
-                                    f"{tag}_{pk}_video.mp4"
+                    # Check if item is a video
+                    if item.get('is_video', False):
+                        pk = item.get('pk')
+                        video_url = item.get('video_url')
+                        
+                        # Skip if video already downloaded
+                        if self._is_video_downloaded(pk):
+                            self.logger.info(f"Skipping already downloaded video with pk: {pk}")
+                            continue
+                        
+                        if video_url:
+                            try:
+                                # Add small random delay to avoid potential rate limiting
+                                time.sleep(random.uniform(0.5, 1.5))
+                                
+                                video_response = requests.get(
+                                    video_url, 
+                                    timeout=15  # Timeout for video download
                                 )
                                 
-                                # Save video
-                                with open(filename, 'wb') as f:
-                                    f.write(video_response.content)
-                                
-                                # Record download in history
-                                self._record_download(tag, pk, video_url, filename)
-                                
-                                downloaded_videos.append(filename)
-                                self.logger.info(f"Successfully downloaded video: {filename}")
-                                tag_video_count += 1
-                        
-                        except requests.exceptions.RequestException as e:
-                            self.logger.warning(f"Failed to download video: {e}")
+                                if video_response.status_code == 200:
+                                    # Generate unique filename
+                                    filename = os.path.join(
+                                        self.videos_directory, 
+                                        f"{tag}_{pk}_video.mp4"
+                                    )
+                                    
+                                    # Save video
+                                    with open(filename, 'wb') as f:
+                                        f.write(video_response.content)
+                                    
+                                    # Record download in history
+                                    self._record_download(tag, pk, video_url, filename)
+                                    
+                                    downloaded_videos.append(filename)
+                                    self.logger.info(f"Successfully downloaded video: {filename}")
+                                    tag_video_count += 1
+                            
+                            except requests.exceptions.RequestException as e:
+                                self.logger.warning(f"Failed to download video: {e}")
                     
                     # Break if max videos per tag is reached
                     if tag_video_count >= self.max_videos:
                         break
                 
+                # Return the list of downloaded videos and the next pagination token
+                return downloaded_videos, next_pagination_token
+            
             except Exception as e:
                 self.logger.error(f"Unexpected error processing tag {tag}: {e}")
         
         self.logger.info(f"Total videos downloaded: {len(downloaded_videos)}")
-        return downloaded_videos
+        return downloaded_videos, None
 
 def download_instagram_videos(tags, max_videos=3):
     """
-    Convenience function to download Instagram videos
+    Convenience function to download Instagram videos with pagination
     
     :param tags: List of hashtags to search
     :param max_videos: Maximum number of videos to download per tag
     :return: List of downloaded video paths
     """
     downloader = InstagramVideoDownloader(tags, max_videos)
-    return downloader.download_videos_from_hashtag()
+    downloaded_videos = []
+    pagination_token = None
+    
+    while len(downloaded_videos) < max_videos * len(tags):
+        new_videos, pagination_token = downloader.download_videos_from_hashtag(pagination_token)
+        downloaded_videos.extend(new_videos)
+        
+        if not pagination_token:
+            break
+    
+    return downloaded_videos

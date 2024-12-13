@@ -56,7 +56,7 @@ class InstagramImageDownloader:
         self.logger.info(f"Initialized downloader with tags: {tags}")
         self.logger.info(f"Max images per tag: {max_images}")
         self.logger.info(f"Loaded {len(self.downloaded_pks)} existing image PKs")
-    
+
     def _load_download_history(self):
         """
         Load download history into memory for fast lookup
@@ -87,7 +87,7 @@ class InstagramImageDownloader:
         except Exception as e:
             self.logger.error(f"Error loading download history: {e}")
             self.downloaded_pks = set()
-    
+
     def _is_image_downloaded(self, pk):
         """
         Check if an image with given pk has been previously downloaded
@@ -97,7 +97,7 @@ class InstagramImageDownloader:
         :return: Boolean indicating if image was previously downloaded
         """
         return str(pk) in self.downloaded_pks
-    
+
     def _record_download(self, tag, pk, image_url, filename):
         """
         Record downloaded image in history CSV and in-memory set
@@ -123,12 +123,13 @@ class InstagramImageDownloader:
                 ])
         except Exception as e:
             self.logger.error(f"Error recording download history: {e}")
-    
-    def download_images_from_hashtag(self):
+
+    def download_images_from_hashtag(self, pagination_token=None):
         """
-        Download images using RapidAPI hashtag endpoint with optimized history tracking
+        Download images using RapidAPI hashtag endpoint with optimized history tracking and pagination
         
-        :return: List of downloaded image paths
+        :param pagination_token: Optional pagination token for the next set of images
+        :return: List of downloaded image paths, pagination token for the next request
         """
         downloaded_images = []
         
@@ -143,6 +144,8 @@ class InstagramImageDownloader:
                 
                 # Query parameters
                 querystring = {"hashtag": tag}
+                if pagination_token:
+                    querystring['pagination_token'] = pagination_token
                 
                 # Log API request details
                 self.logger.info(f"Sending request to URL: {url}")
@@ -161,6 +164,7 @@ class InstagramImageDownloader:
                 data = response.json()
                 
                 items = data.get('data', {}).get('items', [])
+                next_pagination_token = data.get('pagination_token')
                 
                 # Shuffle items to add randomness to selection
                 random.shuffle(items)
@@ -215,11 +219,14 @@ class InstagramImageDownloader:
                     if tag_image_count >= self.max_images:
                         break
                 
+                # Return the list of downloaded images and the next pagination token
+                return downloaded_images, next_pagination_token
+            
             except Exception as e:
                 self.logger.error(f"Unexpected error processing tag {tag}: {e}")
         
         self.logger.info(f"Total images downloaded: {len(downloaded_images)}")
-        return downloaded_images
+        return downloaded_images, None
 
 def download_instagram_images(tags, max_images=3):
     """
@@ -230,4 +237,14 @@ def download_instagram_images(tags, max_images=3):
     :return: List of downloaded image paths
     """
     downloader = InstagramImageDownloader(tags, max_images)
-    return downloader.download_images_from_hashtag()
+    downloaded_images = []
+    pagination_token = None
+    
+    while len(downloaded_images) < max_images * len(tags):
+        new_images, pagination_token = downloader.download_images_from_hashtag(pagination_token)
+        downloaded_images.extend(new_images)
+        
+        if not pagination_token:
+            break
+    
+    return downloaded_images
