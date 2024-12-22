@@ -5,9 +5,12 @@ import logging
 from typing import List
 from dotenv import load_dotenv
 
+# Gemini API imports
+import google.generativeai as genai
+
 # Assuming these modules exist in the same directory
 from instadownloader import download_instagram_videos
-from imagedownloader import download_instagram_images  # Our newly created image downloader
+from imagedownloader import download_instagram_images
 from videouploader import SimpleVideoUploader
 
 # Load environment variables
@@ -27,6 +30,64 @@ def setup_logging():
         ]
     )
     return logging.getLogger(__name__)
+
+def generate_motivational_hashtags(prompt: str, model: genai.GenerativeModel) -> List[str]:
+    """
+    Generate motivational and positive hashtags using Gemini API
+    
+    :param prompt: User's original prompt
+    :param model: Gemini AI model
+    :return: List of generated motivational hashtags
+    """
+    try:
+        hashtag_prompt = f"""Transform the following input into ONLY motivational, positive, and inspiring Instagram hashtags. 
+        Avoid negative or demotivational tags. Focus on empowerment, growth, and positivity.
+        
+        Input: "{prompt}"
+        
+        Guidelines:
+        - Create hashtags that inspire and uplift
+        - Mix single-word and combined hashtags
+        - Emphasize personal growth, motivation, and success
+        - Avoid tags that highlight negative emotions
+        
+        Output Format:
+        - 3-4 single-word motivational hashtags
+        - 2-3 combined motivational hashtags
+        
+        Examples of good hashtags:
+        #motivation #success #growth #mindset
+        #personalgrowth #successmindset #positivevibes #believeinyourself
+        """
+        
+        response = model.generate_content(hashtag_prompt)
+        
+        # Split the response and clean up hashtags
+        all_hashtags = []
+        for line in response.text.split('\n'):
+            line_hashtags = [tag.strip() for tag in line.split() if tag.strip().startswith('#')]
+            all_hashtags.extend(line_hashtags)
+        
+        # Remove duplicates and limit to unique hashtags
+        unique_hashtags = list(dict.fromkeys(all_hashtags))[:6]
+        
+        # Fallback to default motivational hashtags if generation fails
+        if not unique_hashtags:
+            unique_hashtags = [
+                '#motivation', '#success', '#mindset', 
+                '#personalgrowth', '#positivevibes', 
+                '#believeinyourself'
+            ]
+        
+        return unique_hashtags
+    except Exception as e:
+        print(f"❌ Error generating hashtags: {e}")
+        # Fallback motivational hashtags
+        return [
+            '#motivation', '#success', '#mindset', 
+            '#personalgrowth', '#positivevibes', 
+            '#believeinyourself'
+        ]
 
 def validate_inputs(tags: List[str], media_count: int, media_type: str) -> bool:
     """
@@ -72,45 +133,65 @@ async def async_main():
     logger = setup_logging()
     
     try:
+        # Setup Gemini API
+        GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+        if not GEMINI_API_KEY:
+            print("❌ Error: GEMINI_API_KEY not found in .env file")
+            sys.exit(1)
+        
+        genai.configure(api_key=GEMINI_API_KEY)
+        gemini_model = genai.GenerativeModel('gemini-pro')
+        
         # User Input Section - Enhanced UX
-        print("🎥📸 Instagram Media Workflow Automation 🚀")
+        print("🎥📸 Motivational Media Workflow Automation 🚀")
         print("---------------------------------------")
         
-        # Collect Tags
-        tags_input = input("Enter hashtags (comma-separated): ").strip()
-        tags = [tag.strip() for tag in tags_input.split(',') if tag.strip()]
+        # Collect User Prompt
+        user_prompt = input("Enter your motivation/goal prompt: ").strip()
+        
+        # Generate Motivational Hashtags
+        tags = generate_motivational_hashtags(user_prompt, gemini_model)
         
         # Validate tags
         if not validate_inputs(tags, 1, "tags"):
             sys.exit(1)
         
-        # Collect Number of Videos
-        videos_per_tag = int(input("Enter number of VIDEOS per tag: "))
+        # Collect Number of Videos and Images per Tag
+        videos_per_tag = 2  # Automatic 2 videos per tag
+        images_per_tag = 2  # Automatic 2 images per tag
         
-        # Validate video input
+        # Validate input
         if not validate_inputs(tags, videos_per_tag, "videos"):
             sys.exit(1)
         
-        # Collect Number of Images
-        images_per_tag = int(input("Enter number of IMAGES per tag: "))
-        
-        # Validate image input
-        if not validate_inputs(tags, images_per_tag, "images"):
-            sys.exit(1)
-        
         # Log Workflow Start
-        logger.info(f"Starting workflow with tags: {tags}")
+        logger.info(f"Starting workflow with prompt: {user_prompt}")
+        logger.info(f"Generated Motivational Hashtags: {tags}")
         logger.info(f"Videos per tag: {videos_per_tag}, Images per tag: {images_per_tag}")
         
         # Stage 1: Video Download
-        print("\n🎥 Downloading Videos...")
-        downloaded_videos = download_instagram_videos(tags, videos_per_tag)
+        print("\n🎥 Downloading Motivational Videos...")
+        downloaded_videos = []
+        for tag in tags:
+            videos = download_instagram_videos([tag], videos_per_tag)
+            downloaded_videos.extend(videos)
+            
+            # Break if we've reached our desired number of videos
+            if len(downloaded_videos) >= len(tags) * videos_per_tag:
+                break
         
         print(f"✅ Successfully downloaded {len(downloaded_videos)} videos.")
         
         # Stage 2: Image Download
-        print("\n📸 Downloading Images...")
-        downloaded_images = download_instagram_images(tags, images_per_tag)
+        print("\n📸 Downloading Motivational Images...")
+        downloaded_images = []
+        for tag in tags:
+            images = download_instagram_images([tag], images_per_tag)
+            downloaded_images.extend(images)
+            
+            # Break if we've reached our desired number of images
+            if len(downloaded_images) >= len(tags) * images_per_tag:
+                break
         
         print(f"✅ Successfully downloaded {len(downloaded_images)} images.")
         
@@ -142,7 +223,7 @@ async def async_main():
         CATEGORY_ID = 25
         
         # Initialize Uploader
-        uploader = SimpleVideoUploader(FLIC_TOKEN , CATEGORY_ID)
+        uploader = SimpleVideoUploader(FLIC_TOKEN, CATEGORY_ID)
         
         # Upload each downloaded media file asynchronously
         upload_tasks = []
